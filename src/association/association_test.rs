@@ -3563,7 +3563,10 @@ fn test_create_forward_tsn_forward_one_abandoned() -> Result<()> {
         stream_sequence_number: 2,
         user_data: Bytes::from_static(b"ABC"),
         nsent: 1,
-        abandoned: true,
+        message_state: Arc::new(crate::chunk::chunk_payload_data::MessageState {
+            abandoned: core::sync::atomic::AtomicBool::new(true),
+            ..Default::default()
+        }),
         ..Default::default()
     });
 
@@ -3593,7 +3596,10 @@ fn test_create_forward_tsn_forward_two_abandoned_with_the_same_si() -> Result<()
         stream_sequence_number: 2,
         user_data: Bytes::from_static(b"ABC"),
         nsent: 1,
-        abandoned: true,
+        message_state: Arc::new(crate::chunk::chunk_payload_data::MessageState {
+            abandoned: core::sync::atomic::AtomicBool::new(true),
+            ..Default::default()
+        }),
         ..Default::default()
     });
     a.inflight_queue.push_no_check(ChunkPayloadData {
@@ -3604,7 +3610,10 @@ fn test_create_forward_tsn_forward_two_abandoned_with_the_same_si() -> Result<()
         stream_sequence_number: 3,
         user_data: Bytes::from_static(b"DEF"),
         nsent: 1,
-        abandoned: true,
+        message_state: Arc::new(crate::chunk::chunk_payload_data::MessageState {
+            abandoned: core::sync::atomic::AtomicBool::new(true),
+            ..Default::default()
+        }),
         ..Default::default()
     });
     a.inflight_queue.push_no_check(ChunkPayloadData {
@@ -3615,7 +3624,10 @@ fn test_create_forward_tsn_forward_two_abandoned_with_the_same_si() -> Result<()
         stream_sequence_number: 1,
         user_data: Bytes::from_static(b"123"),
         nsent: 1,
-        abandoned: true,
+        message_state: Arc::new(crate::chunk::chunk_payload_data::MessageState {
+            abandoned: core::sync::atomic::AtomicBool::new(true),
+            ..Default::default()
+        }),
         ..Default::default()
     });
 
