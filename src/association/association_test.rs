@@ -3209,7 +3209,7 @@ fn association_with_inflight_data(cumulative_tsn_ack_point: u32, now: Instant) -
     };
 
     for stream_sequence_number in 0..3 {
-        a.inflight_queue.push_no_check(ChunkPayloadData {
+        let mut chunk = ChunkPayloadData {
             tsn: cumulative_tsn_ack_point.wrapping_add(u32::from(stream_sequence_number) + 1),
             stream_identifier: 1,
             stream_sequence_number,
@@ -3219,9 +3219,10 @@ fn association_with_inflight_data(cumulative_tsn_ack_point: u32, now: Instant) -
             user_data: Bytes::from_static(b"payload"),
             nsent: 1,
             since: Some(now),
-            all_inflight: true,
             ..Default::default()
-        });
+        };
+        chunk.set_all_inflight();
+        a.inflight_queue.push_no_check(chunk);
     }
 
     a
@@ -3437,7 +3438,7 @@ fn test_forward_tsn_wraparound() -> Result<()> {
                 a.inflight_queue
                     .get_mut(cumulative_tsn.wrapping_add(offset))
                     .unwrap()
-                    .set_abandoned(true);
+                    .abandon();
             }
 
             if from_timeout {
