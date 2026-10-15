@@ -3164,41 +3164,38 @@ impl Association {
         htna: u32,
         cum_tsn_ack_point_advanced: bool,
     ) -> Result<()> {
-        // HTNA algorithm - RFC 4960 Sec 7.2.4
-        // Increment missIndicator of each chunks that the SACK reported missing
-        // when either of the following is met:
-        // a)  Not in fast-recovery
-        //     miss indications are incremented only for missing TSNs prior to the
-        //     highest TSN newly acknowledged in the SACK.
-        // b)  In fast-recovery AND the Cumulative TSN Ack Point advanced
-        //     the miss indications are incremented for all TSNs reported missing
-        //     in the SACK.
-        if !self.in_fast_recovery || cum_tsn_ack_point_advanced {
-            let max_tsn = if !self.in_fast_recovery {
-                // a) increment only for missing TSNs prior to the HTNA
-                htna
-            } else {
-                // b) increment for all TSNs reported missing
-                cum_tsn_ack_point
-                    .wrapping_add(self.inflight_queue.len() as u32)
-                    .wrapping_add(1)
-            };
+        // HTNA algorithm - RFC 9260 Sec 7.2.4
+        // Every SACK increments the miss indications of the TSNs it reports
+        // missing prior to the highest TSN newly acknowledged. In Fast Recovery,
+        // a SACK that advances the Cumulative TSN Ack Point increments them for
+        // all TSNs reported missing. Skipping the first rule in Fast Recovery
+        // left a TSN lost during it undetected until T3-rtx expired.
+        let max_tsn = if self.in_fast_recovery && cum_tsn_ack_point_advanced {
+            cum_tsn_ack_point
+                .wrapping_add(self.inflight_queue.len() as u32)
+                .wrapping_add(1)
+        } else {
+            htna
+        };
 
-            let mut tsn = cum_tsn_ack_point.wrapping_add(1);
-            while sna32lt(tsn, max_tsn) {
-                if let Some(c) = self.inflight_queue.get_mut(tsn) {
-                    if !c.acked && !c.abandoned() && c.miss_indicator < 3 {
-                        c.miss_indicator += 1;
-                        if c.miss_indicator == 3 && !self.in_fast_recovery {
+        let mut tsn = cum_tsn_ack_point.wrapping_add(1);
+        while sna32lt(tsn, max_tsn) {
+            if let Some(c) = self.inflight_queue.get_mut(tsn) {
+                if !c.acked && !c.abandoned() && c.miss_indicator < 3 {
+                    c.miss_indicator += 1;
+                    if c.miss_indicator == 3 {
+                        self.will_retransmit_fast = true;
+                        if !self.in_fast_recovery {
                             // 2)  If not in Fast Recovery, adjust the ssthresh and cwnd of the
                             //     destination address(es) to which the missing DATA chunks were
-                            //     last sent, according to the formula described in Section 7.2.3.
+                            //     last sent, according to the formula described in Section 7.2.3,
+                            //     and mark the highest outstanding TSN as the Fast Recovery exit
+                            //     point, so one window of losses reduces cwnd once.
                             self.in_fast_recovery = true;
-                            self.fast_recover_exit_point = htna;
+                            self.fast_recover_exit_point = self.my_next_tsn.wrapping_sub(1);
                             self.ssthresh = core::cmp::max(self.cwnd / 2, 4 * self.mtu);
                             self.cwnd = self.ssthresh;
                             self.partial_bytes_acked = 0;
-                            self.will_retransmit_fast = true;
 
                             trace!(
                                 "[{}] updated cwnd={} ssthresh={} inflight={} (FR)",
@@ -3209,12 +3206,12 @@ impl Association {
                             );
                         }
                     }
-                } else {
-                    return Err(Error::ErrTsnRequestNotExist);
                 }
-
-                tsn = tsn.wrapping_add(1);
+            } else {
+                return Err(Error::ErrTsnRequestNotExist);
             }
+
+            tsn = tsn.wrapping_add(1);
         }
 
         if self.in_fast_recovery && cum_tsn_ack_point_advanced {

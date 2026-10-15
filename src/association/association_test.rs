@@ -3393,6 +3393,32 @@ fn test_gap_sack_wraps_tsn() -> Result<()> {
 }
 
 #[test]
+fn test_fast_recovery_counts_misses_below_htna() -> Result<()> {
+    let now = Instant::now();
+    for cumulative_tsn in [10, u32::MAX - 1, u32::MAX] {
+        let mut a = association_with_inflight_data(cumulative_tsn, now);
+        let lost = cumulative_tsn.wrapping_add(1);
+        let htna = cumulative_tsn.wrapping_add(2);
+        a.inflight_queue.mark_as_acked(htna);
+        a.inflight_queue.get_mut(lost).unwrap().miss_indicator = 2;
+
+        // Entering Fast Recovery exits only after the highest outstanding TSN.
+        a.process_fast_retransmission(cumulative_tsn, htna, false)?;
+        assert!(a.in_fast_recovery);
+        assert_eq!(a.fast_recover_exit_point, cumulative_tsn.wrapping_add(3));
+
+        // In Fast Recovery, a SACK that leaves the Cumulative TSN Ack Point
+        // in place still counts misses below the highest TSN newly acknowledged.
+        a.will_retransmit_fast = false;
+        a.inflight_queue.get_mut(lost).unwrap().miss_indicator = 2;
+        a.process_fast_retransmission(cumulative_tsn, htna, false)?;
+        assert_eq!(a.inflight_queue.get(lost).unwrap().miss_indicator, 3);
+        assert!(a.will_retransmit_fast);
+    }
+    Ok(())
+}
+
+#[test]
 fn test_fast_recovery_wraps_tsn() -> Result<()> {
     let now = Instant::now();
     for cumulative_tsn in [10, u32::MAX - 1, u32::MAX] {
