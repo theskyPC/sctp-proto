@@ -3459,7 +3459,7 @@ fn test_forward_tsn_wraparound() -> Result<()> {
                 cumulative_tsn.wrapping_add(2)
             );
             assert!(a.will_send_forward_tsn);
-            let packets = a.gather_outbound_forward_tsn_packets(vec![]);
+            let packets = a.gather_outbound_forward_tsn_packets(vec![], now);
             assert_eq!(packets.len(), 1);
             let packet = Packet::unmarshal(&packets[0])?;
             assert_eq!(packet.chunks.len(), 1);
@@ -3472,6 +3472,25 @@ fn test_forward_tsn_wraparound() -> Result<()> {
             assert_eq!(forward.streams[0].identifier, 1);
             assert_eq!(forward.streams[0].sequence, 1);
             assert!(!a.will_send_forward_tsn);
+
+            // A SACK still behind it repeats it only after a round trip.
+            a.rto_mgr.srtt = 10;
+            let stale = ChunkSelectiveAck {
+                cumulative_tsn_ack: cumulative_tsn,
+                advertised_receiver_window_credit: 1400,
+                ..Default::default()
+            };
+            let later = now + Duration::from_millis(10);
+            a.handle_sack(&stale, now)?;
+            assert!(
+                a.gather_outbound_forward_tsn_packets(vec![], now)
+                    .is_empty()
+            );
+            a.handle_sack(&stale, later)?;
+            assert_eq!(
+                a.gather_outbound_forward_tsn_packets(vec![], later).len(),
+                1
+            );
         }
     }
     Ok(())

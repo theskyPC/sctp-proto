@@ -211,6 +211,8 @@ pub struct Association {
     // for RTT measurement
     min_tsn2measure_rtt: u32,
     will_send_forward_tsn: bool,
+    /// The last FORWARD-TSN's new cumulative TSN and when it left.
+    forward_tsn_sent: Option<(u32, Instant)>,
     will_retransmit_fast: bool,
     will_retransmit_reconfig: bool,
 
@@ -334,6 +336,7 @@ impl Default for Association {
             // for RTT measurement
             min_tsn2measure_rtt: 0,
             will_send_forward_tsn: false,
+            forward_tsn_sent: None,
             will_retransmit_fast: false,
             will_retransmit_reconfig: false,
 
@@ -3438,7 +3441,7 @@ impl Association {
                 raw_packets = self.gather_outbound_control_packets(raw_packets, now);
                 raw_packets = self.gather_outbound_fast_retransmission_packets(raw_packets, now);
                 raw_packets = self.gather_outbound_sack_packets(raw_packets);
-                raw_packets = self.gather_outbound_forward_tsn_packets(raw_packets);
+                raw_packets = self.gather_outbound_forward_tsn_packets(raw_packets, now);
                 (raw_packets, true)
             }
             AssociationState::ShutdownPending
@@ -3746,7 +3749,11 @@ impl Association {
         raw_packets
     }
 
-    fn gather_outbound_forward_tsn_packets(&mut self, mut raw_packets: Vec<Bytes>) -> Vec<Bytes> {
+    fn gather_outbound_forward_tsn_packets(
+        &mut self,
+        mut raw_packets: Vec<Bytes>,
+        now: Instant,
+    ) -> Vec<Bytes> {
         self.discard_abandoned_pending_fragments();
         // Retransmission decisions above may have just abandoned DATA. Advance
         // now, including after a timeout with no subsequent incoming SACK.
@@ -3782,10 +3789,22 @@ impl Association {
         );*/
         if self.will_send_forward_tsn {
             self.will_send_forward_tsn = false;
-            if sna32gt(
-                self.advanced_peer_tsn_ack_point,
-                self.cumulative_tsn_ack_point,
-            ) {
+            // SACKs the peer sent before the last FORWARD-TSN reached it still
+            // ask for it, and the peer answers every FORWARD-TSN with a SACK, so
+            // repeating it for each one makes the peers trade them without end.
+            // Repeat one only after a round trip without progress, when it was
+            // likely lost (RFC 3758 Sec 3.5 F2 allows limiting FORWARD-TSNs).
+            let due = self.forward_tsn_sent.is_none_or(|(tsn, sent)| {
+                sna32gt(self.advanced_peer_tsn_ack_point, tsn)
+                    || now.duration_since(sent) >= Duration::from_millis(self.rto_mgr.srtt)
+            });
+            if due
+                && sna32gt(
+                    self.advanced_peer_tsn_ack_point,
+                    self.cumulative_tsn_ack_point,
+                )
+            {
+                self.forward_tsn_sent = Some((self.advanced_peer_tsn_ack_point, now));
                 let fwd_tsn = self.create_forward_tsn();
                 if let Ok(raw) = self.create_packet(vec![Box::new(fwd_tsn)]).marshal() {
                     raw_packets.push(raw);
