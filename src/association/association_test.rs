@@ -4663,11 +4663,10 @@ fn test_out_of_band_rwnd_negotiation() {
 
 #[test]
 fn test_initial_cwnd_small_mtu() {
-    // Regression test for #47: a small MTU made 4*MTU < 4380, which previously
-    // panicked because clamp(4380, 4*MTU) was called with min > max.
+    // A small MTU once panicked the RFC 4960 formula (#47); the initial window
+    // is ten MTUs whatever the MTU.
     let max_payload_size = 100;
     let mtu = max_payload_size + COMMON_HEADER_SIZE + DATA_CHUNK_HEADER_SIZE;
-    assert!(4 * mtu < 4380, "test must exercise the small-MTU branch");
 
     let assoc = Association::new(
         None,
@@ -4679,9 +4678,7 @@ fn test_initial_cwnd_small_mtu() {
         Instant::now(),
     );
 
-    // RFC 4960 Sec 7.2.1: min(4*MTU, max(2*MTU, 4380)).
-    assert_eq!(assoc.cwnd, (4 * mtu).min((2 * mtu).max(4380)));
-    assert_eq!(assoc.cwnd, 4 * mtu);
+    assert_eq!(assoc.cwnd, 10 * mtu);
 }
 
 fn first_transmit_common_header(a: &mut Association) -> CommonHeader {

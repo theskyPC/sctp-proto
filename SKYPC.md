@@ -2,7 +2,7 @@
 
 Branch `skypc-v0.10.6` is upstream sctp-proto 0.10.6 (`2039e04`) plus
 [webrtc-rs/sctp-proto#57](https://github.com/webrtc-rs/sctp-proto/pull/57),
-which fixes premature PR-SCTP abandonment, and two congestion fixes found
+which fixes premature PR-SCTP abandonment, and three congestion fixes found
 streaming bursty video over a zero-retransmit channel:
 
 1. **Fix premature PR-SCTP abandonment and fragment cleanup** and
@@ -25,6 +25,12 @@ streaming bursty video over a zero-retransmit channel:
    and Fast Recovery ended at the highest TSN newly acknowledged instead of the
    highest outstanding, halving cwnd again for the same losses.
 
+5. **Start the congestion window at ten MTUs.** RFC 4960's initial window
+   is about three packets, so the ~150-packet keyframe opening a WebRTC
+   video session crossed slow start in six round trips, long enough on a
+   phone for the receiver to drop it. Chrome's dcSCTP starts at ten MTUs
+   (`cwnd_mtus_initial`), as RFC 6928 lets TCP.
+
 Drop this fork once upstream 0.10.x releases contain #57 (or the equivalent
-#58) and fixes for 3 and 4; str0m's `sctp-proto = "0.10.5"` requirement accepts
+#58) and fixes for 3, 4 and 5; str0m's `sctp-proto = "0.10.5"` requirement accepts
 them without a str0m release.

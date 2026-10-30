@@ -434,10 +434,11 @@ impl Association {
         // config.rs to get max_payload_size from INITIAL_MTU.
         let mtu = max_payload_size + COMMON_HEADER_SIZE + DATA_CHUNK_HEADER_SIZE;
 
-        // RFC 4960 Sec 7.2.1
-        // The initial cwnd before DATA transmission or after a sufficiently
-        // long idle period MUST be set to min(4*MTU, max (2*MTU, 4380bytes)).
-        let cwnd = (4 * mtu).min((2 * mtu).max(4380));
+        // RFC 4960 Sec 7.2.1 sets the initial cwnd to min(4*MTU, max(2*MTU,
+        // 4380 bytes)), about three packets. Start at ten MTUs, as Chrome's
+        // dcSCTP does (cwnd_mtus_initial) and RFC 6928 lets TCP: from three,
+        // a 150-packet video keyframe opening a session takes six round trips.
+        let cwnd = 10 * mtu;
 
         Association {
             side,
